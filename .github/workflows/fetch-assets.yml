@@ -1,0 +1,44 @@
+name: Fetch remote assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: "Path to a manifest file listing '<output-path> <url>' pairs"
+        required: false
+        default: "assets/manifest.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Download assets from manifest
+        run: |
+          set -euo pipefail
+          manifest="${{ github.event.inputs.manifest }}"
+          if [ ! -f "$manifest" ]; then
+            echo "Manifest $manifest not found" >&2
+            exit 1
+          fi
+          while read -r out url; do
+            [ -z "$out" ] && continue
+            mkdir -p "$(dirname "$out")"
+            echo "Fetching $url -> $out"
+            curl -fSL --retry 3 -o "$out" "$url"
+          done < "$manifest"
+
+      - name: Commit downloaded assets
+        run: |
+          git config user.name "asset-fetch-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "chore: fetch remote assets"
+          git push
